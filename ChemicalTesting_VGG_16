@@ -1,0 +1,396 @@
+#vgg16
+model = torchvision.models.vgg16(pretrained=True)
+   for param in model.parameters():
+    param.requires_grad = False
+   inf = model.classifier[6].in_features
+inf
+   num_classes=2
+#model.classifier[6] =nn.Linear(inf,num_classes)
+   model.classifier[6] = nn.Sequential(
+        nn.Linear(4096, 512),
+        nn.ReLU(),
+        nn.Dropout(0.5),
+        nn.Linear(512, 64),
+        nn.ReLU(),
+        nn.Dropout(0.5),
+        nn.Linear(64, num_classes)
+      )
+   
+   model
+   # # 模型计算量和参数量
+   
+   #方法一：
+from torchsummary import summary
+   print(summary(model, input_size=(3, 1024, 1024)))
+   
+   #方法二：
+total = sum([param.nelement() for param in model.parameters()]) 
+print("Number of parameter: %.2fM" % (total/1e6))
+   
+   #方法三
+from thop import profile
+   input = torch.randn(1, 3,1024,1024)
+flops, params = profile(model, inputs=(input,))
+print('flops: ', flops, 'params: ', params)
+print('计算量 flops: %.2f M, 模型的参数总量 params: %.2f M' % (flops //1e6, params //1e6))
+   
+   #model(imgs_batch)
+   # # 训练模型
+   
+   #训练函数
+def train_model(model, train_dataloader, criterion, optimizer, device):
+       correct=0
+    total=0
+    running_loss = 0.0
+       start_time = time.time()    
+       model.train()
+    for inputs, labels in train_dataloader:
+        labels=torch.tensor(labels,dtype=torch.long)
+        inputs, labels = inputs.to(device), labels.to(device)        
+           predict = model(inputs)
+        loss = criterion(predict,labels)
+           optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        with torch.no_grad():
+            predict=torch.argmax(predict,dim=1)
+            correct+=(predict==labels).sum().item()
+            total+=labels.size(0)
+            running_loss+=loss.item()
+       loss = running_loss / len(train_dataloader.dataset)
+    acc = correct / total
+       train_time = time.time() - start_time 
+       return loss,acc
+   # # 评估模型
+   
+   #评估函数
+def evaluate_model(model, eval_dataloader,criterion, device):
+       test_correct = 0
+    test_total = 0
+    test_running_loss = 0.0
+       predictions = []
+    targets = []
+       start_time = time.time()    
+       model.eval()
+    with torch.no_grad():
+        for inputs, labels in eval_dataloader:
+            labels=torch.tensor(labels,dtype=torch.long)
+            inputs = inputs.to(device)
+               predict = model(inputs)
+            loss = criterion(predict, labels)
+               predict=torch.argmax(predict,dim=1)
+               test_correct+=(predict==labels).sum().item()
+            test_total+=labels.size(0)
+            test_running_loss+=loss.item()
+               predictions.extend(predict.cpu().numpy())
+            targets.extend(labels.numpy())
+       loss = test_running_loss / len(eval_dataloader.dataset)
+    acc = test_correct / test_total
+       eval_time = time.time() - start_time 
+       return loss, acc, predictions, targets
+   # # 开始训练和评估
+   
+   #重复训练轮次
+epochs = 20
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+   # 定义损失函数和优化器  
+criterion = torch.nn.CrossEntropyLoss()   #criterion = nn.MSELoss()
+optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
+   #模型数据记录
+best_model_wts = copy.deepcopy(model.state_dict())
+best_acc = 0.0
+   #训练数据记录
+train_loss = []
+train_acc = []
+eval_loss = []
+eval_acc = []
+   #评估数据记录
+eval_preds = []
+eval_labels = []  
+   # 训练和评估
+model.to(device)
+   for epoch in range(epochs):
+    epoch_train_loss,epoch_train_acc = train_model(model, train_dl, criterion, optimizer, device)           
+       # 测试和评估
+    epoch_eval_loss,epoch_eval_acc,eval_predictions, eval_targets = evaluate_model(model, test_dl,criterion, device)
+       #性能输出
+    print(f"Epoch {epoch+1}/{epochs}: Train Loss: {epoch_train_loss:.4f}   Train Acc: {epoch_train_acc:.4f}  Eval_Loss： {epoch_eval_loss:.4f}   Eval_Acc:{epoch_eval_acc:.4f}")
+       if epoch_eval_acc>best_acc:
+        best_acc=epoch_eval_acc
+        best_model_wts=copy.deepcopy(model.state_dict())
+       train_loss.append(epoch_train_loss)
+    train_acc.append(epoch_train_acc)
+    eval_loss.append(epoch_eval_loss)
+    eval_acc.append(epoch_eval_acc)        
+   model.load_state_dict(best_model_wts) 
+   print(f"Model_best_acc: {best_acc:.4f}")
+   # # 模型参数保存
+   
+   #保存模型权重到文件
+PATH='MyCNN_Weights.pth'
+torch.save(model.state_dict(),PATH)
+print("Model weights saved.")
+   # # 模型性能绘图
+   
+   #损失绘图
+plt.plot(range(1, epochs+1), train_loss, label='train_loss')
+plt.plot(range(1, epochs+1), eval_loss, label='eval_loss')
+plt.legend()
+   # 保存图形
+save_dir='数据报告'
+if not os.path.isdir(save_dir):
+    os.mkdir(save_dir)
+   plt.savefig(save_dir+'VGG16_Loss.png')
+   plt.show()
+   
+   #准确率绘图
+plt.plot(range(1, epochs+1), train_acc, label='train_acc')
+plt.plot(range(1, epochs+1), eval_acc, label='eval_acc')
+plt.legend()
+   # 保存图形
+save_dir='数据报告'
+if not os.path.isdir(save_dir):
+    os.mkdir(save_dir)
+   plt.savefig(save_dir+'VGG16_Acc.png')
+   plt.show()
+   
+   #损失、准确率数据保存
+save_dir='数据报告'
+if not os.path.isdir(save_dir):
+    os.mkdir(save_dir)
+   book = openpyxl.Workbook()
+sheet = book.active
+sheet.title = "数据报告"
+   sheet.append(['epochs', 'train_loss','test_loss','train_acc','test_acc'])
+   for i in range(0, epochs):
+    sheet.append([i+1, train_loss[i], eval_loss[i],train_acc[i],eval_acc[i]])
+   book.save(save_dir+"/VGG16_Loss_Accuracy.xlsx")
+   #range(0,epochs).to_excel(save_dir+"/ResNet_Loss_Accuracy.xlsx", encoding="utf_8_sig")
+#train_loss.to_excel(save_dir+"/ResNet_Loss_Accuracy.xlsx", encoding="utf_8_sig")
+#test_loss.to_excel(save_dir+"/ResNet_Loss_Accuracy.xlsx", encoding="utf_8_sig")
+#test_loss.to_excel(save_dir+"/ResNet_Loss_Accuracy.xlsx", encoding="utf_8_sig")
+#test_acc.to_excel(save_dir+"/ResNet_Loss_Accuracy.xlsx", encoding="utf_8_sig")
+   # # 模型参数导入
+   
+   # 实例化模型
+#model=Net()
+# 加载模型权重
+#model.load_state_dict(torch.load(PATH))
+print("Model weights loaded.")
+   # # 验证模型
+   
+   # 验证模型函数
+def validate_model(model, val_loader):
+    model.eval()
+    model.to(device)
+    correct = 0
+    total = 0
+    all_preds = []
+    all_labels = []
+    with torch.no_grad():
+        for inputs, labels in val_loader:
+            inputs, labels = inputs.to(device), labels.to(device)
+               outputs = model(inputs)
+            _, predicted = torch.max(outputs, dim=1)
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
+               all_preds.extend(predicted.cpu().numpy())
+            all_labels.extend(labels.cpu().numpy())
+       print(f'Validation Accuracy: {100 * correct / total:.2f}%')
+       return  all_labels,all_preds
+   
+   labels,preds=validate_model(model, test_dl)
+preds
+   # # 计算混淆矩阵
+   
+   #生成混淆矩阵
+cm = confusion_matrix(labels, preds)
+cm
+   # # 绘制混淆矩阵
+   
+   # 计算混淆矩阵
+from sklearn.metrics import confusion_matrix
+# confusion_matrix 需要的参数：y_true(真实标签),y_pred(预测标签),normalize(归一化,'true', 'pred', 'all')
+# cm = confusion_matrix(y_true=y_test, y_pred=y_pred, normalize='true')
+   def plot_confusion_matrix(cm,labels,preds): 
+       # 绘制混淆矩阵
+    class_names = ['signal1','signal2']
+    title="confusion_matrix"
+    ylabel='Ground Truth'
+    xlabel='Predicted Label'
+       tick_marks = np.arange(len(class_names))
+       #plt.figure(figsize=(18, 12))
+    plt.imshow(cm, interpolation='nearest', cmap=plt.cm.Blues)  #plt.imshow(cm, interpolation='nearest',cmap='RdBu')
+    plt.colorbar(label='tota1 test sample number')    
+       plt.title(title)
+    plt.xticks(tick_marks,class_names,rotation=45)
+    plt.yticks(tick_marks,class_names)
+    plt.ylabel(ylabel)
+    plt.xlabel(xlabel)
+       plt.show()
+   
+   plot_confusion_matrix(cm,labels,preds)
+   
+   # 使用sklearn的ConfusionMatrixDisplay画混淆矩阵
+# ConfusionMatrixDisplay 需要的参数: confusion_matrix(混淆矩阵), display_labels(标签名称列表)
+#disp.plot()函数内还可以加其他参数,'Accent', 'Accent_r', 'Blues', 'Blues_r', 'BrBG', 'BrBG_r', 'BuGn', 'BuGn_r', 'BuPu', 'BuPu_r', 'CMRmap', 'CMRmap_r', 'Dark2', 'Dark2_r', 'GnBu', 'GnBu_r', 'Greens', 'Greens_r', 'Greys', 'Greys_r', 'OrRd', 'OrRd_r', 'Oranges', 'Oranges_r', 'PRGn', 'PRGn_r', 'Paired', 'Paired_r', 'Pastel1', 'Pastel1_r', 'Pastel2',
+#'Pastel2_r', 'PiYG', 'PiYG_r', 'PuBu', 'PuBuGn', 'PuBuGn_r', 'PuBu_r', 'PuOr', 'PuOr_r', 'PuRd', 'PuRd_r', 'Purples', 'Purples_r', 'RdBu', 'RdBu_r', 'RdGy', 'RdGy_r', 'RdPu', 'RdPu_r', 
+#'RdYlBu', 'RdYlBu_r', 'RdYlGn', 'RdYlGn_r', 'Reds', 'Reds_r', 'Set1', 'Set1_r', 'Set2', 'Set2_r', 'Set3', 'Set3_r', 'Spectral', 'Spectral_r', 'Wistia', 'Wistia_r', 'YlGn', 'YlGnBu', 'YlGnBu_r', 
+#'YlGn_r', 'YlOrBr', 'YlOrBr_r', 'YlOrRd', 'YlOrRd_r', 'afmhot', 'afmhot_r', 'autumn', 'autumn_r', 'binary', 'binary_r', 'bone', 'bone_r', 'brg', 'brg_r', 'bwr', 'bwr_r', 'cividis', 'cividis_r', 
+#'cool', 'cool_r', 'coolwarm', 'coolwarm_r', 'copper', 'copper_r', 'crest', 'crest_r', 'cubehelix','cubehelix_r', 'flag', 'flag_r', 'flare', 'flare_r', 'gist_earth', 'gist_earth_r', 'gist_gray', 
+#'gist_gray_r', 'gist_heat', 'gist_heat_r', 'gist_ncar', 'gist_ncar_r', 'gist_rainbow', 'gist_rainbow_r','gist_stern', 'gist_stern_r', 'gist_yarg', 'gist_yarg_r', 'gnuplot', 'gnuplot2', 'gnuplot2_r', 'gnuplot_r', 
+#'gray', 'gray_r', 'hot', 'hot_r', 'hsv', 'hsv_r', 'icefire', 'icefire_r', 'inferno', 'inferno_r', 'jet', 'jet_r', 'magma', 'magma_r', 'mako', 'mako_r', 'nipy_spectral', 'nipy_spectral_r', 'ocean', 'ocean_r', 'pink', 'pink_r', 
+#'plasma', 'plasma_r', 'prism', 'prism_r', 'rainbow', 'rainbow_r', 'rocket', 'rocket_r', 'seismic', 'seismic_r', 'spring', 'spring_r', 'summer', 'summer_r', 'tab10', 'tab10_r', 'tab20', 'tab20_r', 'tab20b', 'tab20b_r', 'tab20c', 'tab20c_r', 'terrain',
+#'terrain_r', 'turbo', 'turbo_r', 'twilight', 'twilight_r', 'twilight_shifted', 'twilight_shifted_r', 'viridis', 'viridis_r','vlag', 'vlag_r', 'winter', 'winter_r'
+#如cmap，意思是colormap,有很多种类型。
+   from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
+   cm = confusion_matrix(labels,preds)
+class_names = ['signal1','signal2']
+disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=class_names)
+#disp.plot() 
+disp.plot(cmap=plt.cm.Blues)
+plt.show()
+   
+   # 使用 seaborn 对 confusion_matrix 进行可视化
+from sklearn.metrics import confusion_matrix
+import seaborn as sns
+   class_names = ['signal1','signal2']
+title="confusion_matrix"
+ylabel='Ground Truth'
+xlabel='Predicted Label'
+   tick_marks = np.arange(len(class_names))
+   cm=confusion_matrix(labels, preds)
+   #sns.heatmap(cm, annot=True) 
+sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", cbar=False) 
+#sns.heatmap(cm, annot=True,cmap='PuOr') 
+#sns.heatmap(cm, cmap="YlGnBu",annot=True)
+plt.title(title,fontsize=20) #图片标题文本和字体大小
+   plt.xlabel(xlabel,fontsize=20, color='k') #x轴label的文本和字体大小plt.xlabel(xlabel,fontsize=20, color='k')
+plt.ylabel(ylabel,fontsize=20, color='k') #y轴label的文本和字体大小plt.ylabel(ylabel,fontsize=20, color='k')
+plt.xticks(tick_marks,class_names,rotation=45) #plt.xticks(fontsize=20) #x轴刻度的字体大小
+plt.yticks(tick_marks,class_names)  #plt.yticks(fontsize=20) #y轴刻度的字体大小
+plt.show()
+   # # 模型性能综合评估
+   
+   # 计算评价指标
+from sklearn.metrics import f1_score, mean_absolute_error, mean_squared_error, roc_auc_score 
+from sklearn.metrics import accuracy_score, precision_score, recall_score, ndcg_score
+   # 定义计算F1-score的函数
+def calculate_f1_score(true_labels, predicted_labels):
+    return f1_score(true_labels, predicted_labels)
+   # 定义计算MAE的函数
+def calculate_mae(true_values, predicted_values):
+    return mean_absolute_error(true_values, predicted_values)
+   # 定义计算RMSE的函数
+def calculate_rmse(true_values, predicted_values):
+    return np.sqrt(mean_squared_error(true_values, predicted_values))
+   # 定义计算Accuracy的函数
+def calculate_accuracy(true_labels, predicted_labels):
+    return accuracy_score(true_labels, predicted_labels)
+   # 计算Precision@k指标
+def calculate_precision(true_labels, predicted_labels):    
+    return precision_score(true_labels, predicted_labels)
+   # 定义计算Recall的函数
+def calculate_recall(true_labels, predicted_labels):
+    return recall_score(true_labels, predicted_labels)
+   # 定义计算ROC AUC的函数
+def calculate_roc_auc(true_labels, predicted_scores):
+    return roc_auc_score(true_labels, predicted_scores)
+   # 计算NDCG@k指标
+def compute_ndcg(predictions, targets, k):
+    ndcg_scores = ndcg_score(targets, predictions, k=k)
+    return ndcg_scores.mean()
+   # 计算Hit Rate@k指标
+def compute_hit_rate(predictions, targets, k):
+    num_hits = 0
+    for i in range(len(predictions)):
+        if targets[i] in predictions[i, :k]:
+            num_hits += 1
+    return num_hits / len(predictions)
+   # 计算Precision@k指标
+def compute_precision(predictions, targets, k):
+    precision_scores = []
+    for i in range(len(predictions)):
+        precision = precision_score([targets[i]], predictions[i, :k], average='micro')
+        precision_scores.append(precision)
+    return sum(precision_scores) / len(predictions)
+   
+   # 测试评价计算
+print("F1-score:", calculate_f1_score(labels, preds))
+print("Accuracy:", calculate_accuracy(labels, preds))
+print("Precision:", calculate_precision(labels, preds))
+print("Recall:", calculate_recall(labels, preds))
+print("ROC_AUC:", calculate_roc_auc(labels, preds))
+   #print(f"Precision@{k}: {precision:.4f}")
+   # # 计算ROC曲线和AUC
+   
+   #ROC（Receiver Operating Characteristic）曲线和AUC（Area Under the ROC Curve）是用于评估二分类模型性能的常用指标。
+# ROC展示了不同阈值下的真阳性率（True Positive Rate）与假阳性率（False Positive Rate）之间的关系。
+# AUC表示ROC曲线下的面积。AUC的值范围在0到1之间，数值越大表示模型性能越好。
+   from sklearn.metrics import roc_curve, auc, roc_auc_score
+   # 计算ROC曲线和AUC
+fpr, tpr, thresholds = roc_curve(labels, preds)
+roc_auc = roc_auc_score(labels, preds) #roc_auc = auc(fpr, tpr)
+   # 可视化ROC曲线
+plt.figure()
+plt.plot(fpr, tpr, color='darkorange', lw=2, label='ROC curve (area = %0.2f)' % roc_auc)
+plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
+plt.xlim([0.0, 1.0])
+plt.ylim([0.0, 1.05])
+plt.xlabel('False Positive Rate')
+plt.ylabel('True Positive Rate')
+plt.title('Receiver Operating Characteristic')
+plt.legend(loc="lower right")
+   # 保存图形
+save_dir='数据报告'
+if not os.path.isdir(save_dir):
+    os.mkdir(save_dir)
+   plt.savefig(save_dir+'VGG_AUC.png')
+   plt.show()
+   print("AUC:", roc_auc)
+   #在这个示例中，我们首先生成随机的真实标签和预测概率。然后，使用roc_curve函数计算ROC曲线的真阳性率（True Positive Rate）
+#和假阳性率（False Positive Rate），以及阈值。
+#使用roc_auc_score或者auc函数计算AUC值。
+#最后，使用matplotlib库绘制ROC曲线图，并输出计算得到的AUC值。
+#您可以根据实际的模型预测结果和真实标签替换示例代码中的y_true和y_pred，以计算和可视化您的模型的ROC和AUC指标。
+   
+   # # 定义测试模型
+   
+   #Test_model=Net()
+#Test_model.load_state_dict(torch.load(PATH))
+   
+   # 测试单张图片
+image_path = 'Data_Val/0.tif'  #替换为你的图片路径
+image = Image.open(image_path)
+plt.imshow(img)
+   width, height = image.size
+channels = 1 if image.mode == 'L' else 3  # 灰度图像有1个通道，彩色图像有3个通道
+print(f"Image dimensions: {width} x {height} x {channels}")
+   
+   # 2、直接加载未处理的图片进行测试
+#单张测试图片并进行预处理
+def load_and_preprocess_image(image_path):
+    transform_valid = transforms.Compose([
+                    transforms.Resize((1024, 1024)),
+                    transforms.ToTensor()                    
+    ])
+       #image = glob.glob(image_path)
+    image = Image.open(image_path)   
+    image_tensor = transform_valid(image)
+    # 将单张图像添加到批次维度
+    image_tensor=torch.unsqueeze(image_tensor, 0)#或者image_tensor.unsqueeze(0)
+       return image_tensor
+   
+   image_path = 'Data_Val/1.tif'  #替换为你的图片路径
+image = load_and_preprocess_image(image_path).to(device)
+   output = model(image)
+   #输出概率最大的类别
+_, predicted_class = torch.max(output, dim=1)
+predicted_class
+   
+   percentage = F.softmax(output, dim=1)[0] * 100
+percentage
+   
+   # 得到预测结果，并且从大到小排序
+_, indices = torch.sort(output, descending=True)
+indices
