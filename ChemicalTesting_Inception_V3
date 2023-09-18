@@ -1,0 +1,67 @@
+import sys
+import time
+import copy 
+import os
+import openpyxl
+from openpyxl import Workbook
+import numpy as np
+import matplotlib.pyplot as plt
+from PIL import Image   #  pip install pillow
+import glob
+import torch
+from torch.utils import data
+import torchvision
+from torchvision import transforms
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
+
+print('PyTorch version:', torch.__version__) 
+print('Python version:',sys.version)
+
+imgs_path = glob.glob(r'Data/*/*.tif')
+imgs_path[-3:]
+img_p = imgs_path[7]
+img_p
+img_p.split('\\')[1]
+label_names = [img_p.split('\\')[1] for img_p in imgs_path]
+unique_label = np.unique(label_names)
+unique_label
+label_to_index = dict((v, k) for k, v in enumerate(unique_label))
+label_to_index
+index_to_label = dict((v, k) for k, v in label_to_index.items())
+index_to_label
+all_labels = [label_to_index.get(la) for la in label_names]
+all_labels[:5]
+all_labels[-5: ]
+len(imgs_path)
+np.random.seed(2023)
+random_index = np.random.permutation(len(imgs_path))
+imgs_path = np.array(imgs_path)[random_index]
+all_labels = np.array(all_labels)[random_index]
+imgs_path[:5]
+imgs_path[1].shape
+
+i = int(len(imgs_path)*0.8)
+train_path = imgs_path[ :i]
+train_labels = all_labels[ :i]
+test_path = imgs_path[i: ]
+test_labels = all_labels[i: ]
+
+# # 数据集创建
+test_transform = transforms.Compose([
+                    transforms.Resize((1024, 1024)),
+                    transforms.CenterCrop((680,680)),
+                    #transforms.RandomRotation(degrees=(40)),   
+                    transforms.ToTensor(), 
+                    transforms.Normalize(mean=[0.485, 0.456, 0.406],std=[0.229, 0.224, 0.225])# mean=[0.5,0.5,0.5],std=[0.5,0.5,0.5]
+])
+
+train_transform = transforms.Compose([                   
+                    transforms.Resize((1024, 1024)),
+                    transforms.CenterCrop((680,680)),
+                    #transforms.RandomRotation(degrees=(40)),  
+                    transforms.ToTensor(),   
+                    transforms.Normalize(mean=[0.485, 0.456, 0.406],std=[0.229, 0.224, 0.225])# mean=[0.5,0.5,0.5],std=[0.5,0.5,0.5]
+])
